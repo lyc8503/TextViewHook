@@ -1,5 +1,7 @@
 package me.textviewhook
 
+import android.text.SpannableStringBuilder
+import android.text.Spanned
 import android.widget.TextView
 import de.robv.android.xposed.IXposedHookLoadPackage
 import de.robv.android.xposed.XC_MethodHook
@@ -21,6 +23,38 @@ class MainHook : IXposedHookLoadPackage {
 
                 XposedBridge.log("TextView setText arg: ${param.args[0]} Class: ${param.args[0].javaClass.name}")
 
+                if (param.args[0] is Spanned) {
+                    val originalSpanned = param.args[0] as Spanned
+                    val modifiedSpanned = SpannableStringBuilder()
+
+                    var current = 0
+                    originalSpanned.getSpans(0, originalSpanned.length, Any::class.java).forEach { span ->
+                        val start = originalSpanned.getSpanStart(span)
+                        val end = originalSpanned.getSpanEnd(span)
+                        val flags = originalSpanned.getSpanFlags(span)
+                        XposedBridge.log("Span: $span $start $end $flags Class: ${span.javaClass.name}")
+
+                        if (start > current) {
+                            // Copy the gap between the last span and the current span
+                            val gap = originalSpanned.subSequence(current, start)
+                            modifiedSpanned.append(doReplace(gap))
+                        } else {
+                            val newText = doReplace(originalSpanned.subSequence(start, end))
+                            XposedBridge.log("New Text: $newText")
+                            modifiedSpanned.append(newText, span, flags)
+                        }
+                        current = start
+                    }
+
+                    // Copy the remaining text after the last span (also handles the case where there are no spans)
+                    if (current < originalSpanned.length) {
+                        val remainingText = originalSpanned.subSequence(current, originalSpanned.length)
+                        modifiedSpanned.append(doReplace(remainingText))
+                    }
+
+                    param.args[0] = modifiedSpanned
+                    return
+                }
                 // Modify the text before it is set
                 val originalText = param.args[0] as CharSequence
                 param.args[0] = doReplace(originalText)
